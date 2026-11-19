@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maratona 12h - Controle de Estudos</title>
+    <style>
+        :root {
+            --bg: #121214;
+            --card: #202024;
+            --text: #e1e1e6;
+            --accent: #8257e5;
+            --green: #04d361;
+            --orange: #fba94c;
+        }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .card {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .timer-display {
+            font-size: 3.5rem;
+            font-weight: bold;
+            text-align: center;
+            margin: 10px 0;
+            font-variant-numeric: tabular-nums;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { opacity: 0.9; }
+        button.pause { background: var(--orange); color: #121214; }
+        button.reset { background: #323238; }
+        .progress-bar {
+            width: 100%;
+            height: 12px;
+            background: #323238;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: var(--green);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #323238;
+            background: #121214;
+            color: white;
+        }
+        .topic-item {
+            background: #29292e;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+        .topic-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+        .subtopic-list {
+            margin-top: 10px;
+            padding-left: 25px;
+            border-left: 2px solid #323238;
+        }
+        .subtopic-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin: 8px 0;
+        }
+        .completed {
+            text-decoration: line-through;
+            opacity: 0.5;
+        }
+        .small-btn {
+            padding: 4px 8px;
+            font-size: 0.8rem;
+            background: #323238;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2 style="margin-top:0; text-align:center;" id="mode-title">Modo: Estudo Focado</h2>
+        <div class="timer-display" id="timer">00:00:00</div>
+        <div class="controls">
+            <button onclick="startStudy()">Iniciar Estudo</button>
+            <button class="pause" onclick="startBreak()">Pausa / Descanso</button>
+            <button class="reset" onclick="pauseAll()">Pausar Relógio</button>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.9rem;">
+            <span>Meta Líquida: 12h</span>
+            <span id="total-studied">Estudado: 0h 0m</span>
+        </div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress"></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Cronograma e Checklist</h3>
+        <div class="input-group">
+            <input type="text" id="new-topic" placeholder="Novo tópico principal (ex: Cálculo II - Integrais)">
+            <button onclick="addTopic()">Adicionar Tópico</button>
+        </div>
+        <div id="topics-container"></div>
+    </div>
+
+    <script>
+        // Lógica do Cronômetro
+        let studySeconds = parseInt(localStorage.getItem('studySeconds')) || 0;
+        let breakSeconds = 0;
+        let mode = 'stopped'; // 'study', 'break', 'stopped'
+        let interval = null;
+        const GOAL_SECONDS = 12 * 3600;
+
+        function formatTime(sec) {
+            const h = Math.floor(sec / 3600).toString().padStart(2, '0');
+            const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
+            const s = (sec % 60).toString().padStart(2, '0');
+            return `${h}:${m}:${s}`;
+        }
+
+        function updateTimerDisplay() {
+            const display = document.getElementById('timer');
+            const title = document.getElementById('mode-title');
+            
+            if (mode === 'break') {
+                display.innerText = formatTime(breakSeconds);
+                display.style.color = 'var(--orange)';
+                title.innerText = 'Modo: Pausa (Não conta nas 12h)';
+            } else {
+                display.innerText = formatTime(studySeconds);
+                display.style.color = 'var(--text)';
+                title.innerText = mode === 'study' ? 'Modo: Estudando...' : 'Relógio Pausado';
+            }
+
+            const h = Math.floor(studySeconds / 3600);
+            const m = Math.floor((studySeconds % 3600) / 60);
+            document.getElementById('total-studied').innerText = `Estudado: ${h}h ${m}m`;
+            
+            const pct = Math.min((studySeconds / GOAL_SECONDS) * 100, 100);
+            document.getElementById('progress').style.width = pct + '%';
+        }
+
+        function startStudy() {
+            mode = 'study';
+            if (!interval) runInterval();
+            updateTimerDisplay();
+        }
+
+        function startBreak() {
+            mode = 'break';
+            breakSeconds = 0;
+            if (!interval) runInterval();
+            updateTimerDisplay();
+        }
+
+        function pauseAll() {
+            mode = 'stopped';
+            clearInterval(interval);
+            interval = null;
+            updateTimerDisplay();
+        }
+
+        function runInterval() {
+            interval = setInterval(() => {
+                if (mode === 'study') {
+                    studySeconds++;
+                    localStorage.setItem('studySeconds', studySeconds);
+                } else if (mode === 'break') {
+                    breakSeconds++;
+                }
+                updateTimerDisplay();
+            }, 1000);
+        }
+
+        // Lógica dos Tópicos e Subtópicos
+        let topics = JSON.parse(localStorage.getItem('studyTopics')) || [];
+
+        function saveTopics() {
+            localStorage.setItem('studyTopics', JSON.stringify(topics));
+            renderTopics();
+        }
+
+        function addTopic() {
+            const input = document.getElementById('new-topic');
+            if (!input.value.trim()) return;
+            topics.push({ text: input.value, done: false, subtopics: [] });
+            input.value = '';
+            saveTopics();
+        }
+
+        function toggleTopic(index) {
+            topics[index].done = !topics[index].done;
+            saveTopics();
+        }
+
+        function deleteTopic(index) {
+            topics.splice(index, 1);
+            saveTopics();
+        }
+
+        function addSubtopic(topicIndex) {
+            const text = prompt("Nome do subtópico (ex: Lista de exercícios 1):");
+            if (text && text.trim()) {
+                topics[topicIndex].subtopics.push({ text: text, done: false });
+                saveTopics();
+            }
+        }
+
+        function toggleSubtopic(topicIndex, subIndex) {
+            topics[topicIndex].subtopics[subIndex].done = !topics[topicIndex].subtopics[subIndex].done;
+            saveTopics();
+        }
+
+        function deleteSubtopic(topicIndex, subIndex) {
+            topics[topicIndex].subtopics.splice(subIndex, 1);
+            saveTopics();
+        }
+
+        function renderTopics() {
+            const container = document.getElementById('topics-container');
+            container.innerHTML = '';
+
+            topics.forEach((topic, tIdx) => {
+                const div = document.createElement('div');
+                div.className = 'topic-item';
+                
+                let subHtml = topic.subtopics.map((sub, sIdx) => `
+                    <div class="subtopic-item">
+                        <label class="${sub.done ? 'completed' : ''}">
+                            <input type="checkbox" ${sub.done ? 'checked' : ''} onchange="toggleSubtopic(${tIdx}, ${sIdx})">
+                            ${sub.text}
+                        </label>
+                        <button class="small-btn" onclick="deleteSubtopic(${tIdx}, ${sIdx})">x</button>
+                    </div>
+                `).join('');
+
+                div.innerHTML = `
+                    <div class="topic-header">
+                        <label class="${topic.done ? 'completed' : ''}">
+                            <input type="checkbox" ${topic.done ? 'checked' : ''} onchange="toggleTopic(${tIdx})">
+                            ${topic.text}
+                        </label>
+                        <div>
+                            <button class="small-btn" onclick="addSubtopic(${tIdx})">+ Subtópico</button>
+                            <button class="small-btn" onclick="deleteTopic(${tIdx})">Excluir</button>
+                        </div>
+                    </div>
+                    <div class="subtopic-list">${subHtml}</div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        updateTimerDisplay();
+        renderTopics();
+    </script>
+</body>
+</html>
